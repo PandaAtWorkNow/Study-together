@@ -3,73 +3,324 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Выбор времени</title>
+  <title>Запись в салон — Mini App</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <h1>Запись: выбор времени</h1>
+  <h1>Запись</h1>
 
-  <!-- Кнопка открытия выбора -->
-  <button id="open">Выбрать время</button>
-
-  <!-- Простой блок выбора (без CSS) -->
-  <div id="picker" style="display:none;">
-    <p>Выберите время:</p>
-    <select id="time">
-      <option value="10:00">10:00</option>
-      <option value="11:00">11:00</option>
-      <option value="12:00">12:00</option>
-      <option value="13:00">13:00</option>
-      <option value="14:00">14:00</option>
-      <option value="15:00">15:00</option>
-      <option value="16:00">16:00</option>
+  <!-- Блок выбора -->
+  <div id="picker">
+    <p>Выберите услугу:</p>
+    <select id="service" disabled>
+      <option value="">Загрузка…</option>
     </select>
-    <button id="send">Подтвердить</button>
-    <button id="cancel">Отмена</button>
+
+    <p>Выберите мастера:</p>
+    <select id="master" disabled>
+      <option value="">Сначала выберите услугу</option>
+    </select>
+
+    <p>Выберите дату:</p>
+    <input id="date" type="date" disabled />
+
+    <p>Свободное время:</p>
+    <select id="time" disabled>
+      <option value="">Сначала выберите мастера и дату</option>
+    </select>
+
+    <!-- Кнопка только для фолбэка вне Telegram -->
+    <button id="fallback-send" style="display:none;">Подтвердить (вне Telegram)</button>
   </div>
 
   <p id="status"></p>
 
   <script>
-    const tg = window.Telegram?.WebApp;
-    if (tg) {
-      tg.ready();
-      tg.expand();
+    // === Константы бэкенда (замени на свой адрес) ===
+    const API_BASE = "https://YOUR_BACKEND_HOST/api"; // напр. https://example.com/api
+
+    // === Объекты Telegram Mini App ===
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+
+    // === DOM-ссылки ===
+    const serviceSel = document.getElementById('service');
+    const masterSel  = document.getElementById('master');
+    const dateInput  = document.getElementById('date');
+    const timeSel    = document.getElementById('time');
+    const statusP    = document.getElementById('status');
+    const fallbackBtn= document.getElementById('fallback-send');
+
+    // ==== Утилиты ====
+    function setStatus(text) {
+      statusP.textContent = text || '';
     }
 
-    const openBtn = document.getElementById('open');
-    const picker  = document.getElementById('picker');
-    const sendBtn = document.getElementById('send');
-    const cancelBtn = document.getElementById('cancel');
-    const timeSel = document.getElementById('time');
-    const statusP = document.getElementById('status');
+    function todayISO() {
+      const d = new Date();
+      d.setHours(0,0,0,0);
+      const off = d.getTimezoneOffset();
+      const d2 = new Date(d.getTime() - off * 60000);
+      return d2.toISOString().slice(0,10);
+    }
 
-    openBtn.addEventListener('click', () => {
-      picker.style.display = 'block';
-      statusP.textContent = '';
-    });
+    // Безопасный GET к нашему бэкенду с прокидыванием initData для верификации пользователя
+    async function apiGet(path, params = {}) {
+      const url = new URL(API_BASE + path);
+      Object.entries(params).forEach(([k,v]) => {
+        if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+      });
 
-    cancelBtn.addEventListener('click', () => {
-      picker.style.display = 'none';
-      statusP.textContent = 'Выбор отменён.';
-    });
-
-    sendBtn.addEventListener('click', () => {
-      const time = timeSel.value;
-
-      // Если запущено из Telegram — отправляем данные боту
-      if (tg && typeof tg.sendData === 'function') {
-        tg.sendData(JSON.stringify({ type: 'booking_time', time }));
-        // (опционально) закрыть веб-страницу MiniApp после отправки
-        // tg.close();
-        statusP.textContent = 'Время отправлено в бота: ' + time;
-      } else {
-        // Фолбэк для обычного браузера
-        statusP.textContent = 'Вы выбрали: ' + time + ' (запуск вне Telegram)';
-        alert('Выбрано время: ' + time);
+      const headers = {
+        "Accept": "application/json",
+      };
+      // Рекомендуемый способ — передавать initData для проверки подписи на бэкенде
+      if (tg && tg.initData) {
+        headers["X-Telegram-Init-Data"] = tg.initData;
       }
 
-      picker.style.display = 'none';
+      const resp = await fetch(url.toString(), { headers, credentials: "include" });
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status}: ${txt || resp.statusText}`);
+      }
+      return resp.json();
+    }
+
+    // === Загрузка справочников ===
+    async function loadServices() {
+      setStatus("Загрузка услуг…");
+      serviceSel.disabled = true;
+      serviceSel.innerHTML = `<option value="">Загрузка…</option>`;
+      const data = await apiGet("/services");
+      // Ожидаемый формат: [{id, name, duration_minutes?}, ...]
+      serviceSel.innerHTML = `<option value="">— выберите услугу —</option>`;
+      for (const s of data) {
+        const opt = document.createElement("option");
+        opt.value = String(s.id);
+        opt.textContent = s.name;
+        opt.dataset.duration = s.duration_minutes || "";
+        serviceSel.appendChild(opt);
+      }
+      serviceSel.disabled = false;
+      setStatus("");
+    }
+
+    async function loadMasters(serviceId) {
+      setStatus("Загрузка мастеров…");
+      masterSel.disabled = true;
+      masterSel.innerHTML = `<option value="">Загрузка…</option>`;
+      // Можно фильтровать мастеров по услуге (если логика такая)
+      const data = await apiGet("/masters", { service_id: serviceId || "" });
+      // Ожидаемый формат: [{id, name}, ...]
+      masterSel.innerHTML = `<option value="">— выберите мастера —</option>`;
+      for (const m of data) {
+        const opt = document.createElement("option");
+        opt.value = String(m.id);
+        opt.textContent = m.name;
+        masterSel.appendChild(opt);
+      }
+      masterSel.disabled = false;
+      setStatus("");
+    }
+
+    async function loadSlots({ serviceId, masterId, dateISO }) {
+      setStatus("Загрузка свободного времени…");
+      timeSel.disabled = true;
+      timeSel.innerHTML = `<option value="">Загрузка…</option>`;
+      // Ожидаемый формат ответа: { slots: ["10:00","10:30",...]} или просто ["10:00",...]
+      const data = await apiGet("/slots", {
+        service_id: serviceId,
+        master_id: masterId,
+        date: dateISO
+      });
+      const slots = Array.isArray(data) ? data : (data.slots || []);
+      timeSel.innerHTML = `<option value="">— выберите время —</option>`;
+      if (slots.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "Нет свободных окошек";
+        timeSel.appendChild(opt);
+      } else {
+        for (const t of slots) {
+          const opt = document.createElement("option");
+          opt.value = t;
+          opt.textContent = t;
+          timeSel.appendChild(opt);
+        }
+      }
+      timeSel.disabled = false;
+      setStatus("");
+    }
+
+    // === Управление MainButton (рекомендуется Telegram) ===
+    function updateMainButtonState() {
+      const ready = !!(serviceSel.value && masterSel.value && dateInput.value && timeSel.value);
+      if (!tg) {
+        // Вне Telegram показываем фолбэк-кнопку
+        fallbackBtn.style.display = ready ? "inline-block" : "none";
+        return;
+      }
+      if (ready) {
+        tg.MainButton.setText("Подтвердить запись");
+        tg.MainButton.enable();
+        tg.MainButton.show();
+      } else {
+        tg.MainButton.hide();
+        tg.MainButton.disable();
+      }
+    }
+
+    function getPayload() {
+      const serviceId = serviceSel.value;
+      const masterId  = masterSel.value;
+      const dateISO   = dateInput.value;
+      const time      = timeSel.value;
+
+      const serviceText = serviceSel.options[serviceSel.selectedIndex]?.textContent || "";
+      const masterText  = masterSel.options[masterSel.selectedIndex]?.textContent || "";
+
+      // Итоговый полезный груз для бота
+      return {
+        type: "booking",
+        service_id: serviceId,
+        service_name: serviceText,
+        master_id: masterId,
+        master_name: masterText,
+        date: dateISO,
+        time: time
+      };
+    }
+
+    function sendToBot() {
+      const payload = getPayload();
+      if (tg && typeof tg.sendData === "function") {
+        tg.sendData(JSON.stringify(payload));
+        // по желанию можно закрыть Mini App:
+        // tg.close();
+        setStatus("Данные отправлены в бота.");
+      } else {
+        // Фолбэк вне Telegram
+        alert("Отправка в бот невозможна (вы вне Telegram).\n" + JSON.stringify(payload, null, 2));
+      }
+    }
+
+    // === Инициализация ===
+    (function init() {
+      if (tg) {
+        tg.ready();
+        tg.expand(); // даём высоту
+        tg.BackButton.hide(); // покажем при необходимости
+        tg.MainButton.setParams({ text: "Подтвердить", is_visible: false, is_active: false });
+
+        // Обработчик клика по MainButton
+        tg.onEvent("mainButtonClicked", () => {
+          // Валидация перед отправкой
+          if (!(serviceSel.value && masterSel.value && dateInput.value && timeSel.value)) {
+            tg.showAlert("Пожалуйста, выберите услугу, мастера, дату и время.");
+            return;
+          }
+          sendToBot();
+        });
+
+        // Реакция на смену темы (можно подстроить стили в будущем)
+        tg.onEvent("themeChanged", () => {
+          // Здесь можно перечитать tg.themeParams и обновить стили
+        });
+      } else {
+        // Вне Telegram — показываем фолбэк-кнопку отправки
+        fallbackBtn.style.display = "none";
+      }
+
+      // Устанавливаем минимальную дату = сегодня
+      const min = todayISO();
+      dateInput.min = min;
+
+      // Загрузка справочников
+      loadServices()
+        .then(() => {
+          serviceSel.disabled = false;
+          setStatus("");
+        })
+        .catch((e) => {
+          setStatus("Ошибка загрузки услуг");
+          if (tg) tg.showAlert("Ошибка загрузки услуг: " + e.message);
+        });
+
+      // Стартовые состояния
+      updateMainButtonState();
+    })();
+
+    // === Обработчики UI ===
+    serviceSel.addEventListener("change", async () => {
+      // Сброс зависимых полей
+      masterSel.innerHTML = `<option value="">Загрузка…</option>`;
+      masterSel.disabled = true;
+      dateInput.value = "";
+      dateInput.disabled = true;
+      timeSel.innerHTML = `<option value="">Сначала выберите мастера и дату</option>`;
+      timeSel.disabled = true;
+      updateMainButtonState();
+
+      const serviceId = serviceSel.value;
+      if (!serviceId) {
+        masterSel.innerHTML = `<option value="">Сначала выберите услугу</option>`;
+        return;
+      }
+      try {
+        await loadMasters(serviceId);
+        dateInput.disabled = false;
+      } catch (e) {
+        setStatus("Ошибка загрузки мастеров");
+        if (tg) tg.showAlert("Ошибка загрузки мастеров: " + e.message);
+      } finally {
+        updateMainButtonState();
+      }
+    });
+
+    masterSel.addEventListener("change", () => {
+      // При смене мастера сбрасываем слоты
+      timeSel.innerHTML = `<option value="">Сначала выберите дату</option>`;
+      timeSel.disabled = true;
+      updateMainButtonState();
+    });
+
+    dateInput.addEventListener("change", async () => {
+      // При выборе даты подгружаем слоты
+      timeSel.innerHTML = `<option value="">Загрузка…</option>`;
+      timeSel.disabled = true;
+      updateMainButtonState();
+
+      const serviceId = serviceSel.value;
+      const masterId  = masterSel.value;
+      const dateISO   = dateInput.value;
+
+      if (!(serviceId && masterId && dateISO)) {
+        timeSel.innerHTML = `<option value="">Сначала выберите услугу, мастера и дату</option>`;
+        return;
+      }
+      try {
+        await loadSlots({ serviceId, masterId, dateISO });
+      } catch (e) {
+        setStatus("Ошибка загрузки слотов");
+        if (tg) tg.showAlert("Ошибка загрузки времени: " + e.message);
+        timeSel.innerHTML = `<option value="">Ошибка загрузки</option>`;
+        timeSel.disabled = true;
+      } finally {
+        updateMainButtonState();
+      }
+    });
+
+    timeSel.addEventListener("change", () => {
+      updateMainButtonState();
+    });
+
+    // Фолбэк отправки вне Telegram
+    fallbackBtn.addEventListener("click", () => {
+      if (!(serviceSel.value && masterSel.value && dateInput.value && timeSel.value)) {
+        alert("Заполните все поля.");
+        return;
+      }
+      sendToBot();
     });
   </script>
 </body>
