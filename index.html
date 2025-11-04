@@ -1,25 +1,76 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8">
-  <title>MiniApp — запись (заглушка)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Выбор времени</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <h1>MiniApp подключен</h1>
-  <p id="info">Проверка: Telegram WebApp API не инициализирован.</p>
+  <h1>Запись: выбор времени</h1>
+
+  <!-- Кнопка открытия выбора -->
+  <button id="open">Выбрать время</button>
+
+  <!-- Простой блок выбора (без CSS) -->
+  <div id="picker" style="display:none;">
+    <p>Выберите время:</p>
+    <select id="time">
+      <option value="10:00">10:00</option>
+      <option value="11:00">11:00</option>
+      <option value="12:00">12:00</option>
+      <option value="13:00">13:00</option>
+      <option value="14:00">14:00</option>
+      <option value="15:00">15:00</option>
+      <option value="16:00">16:00</option>
+    </select>
+    <button id="send">Подтвердить</button>
+    <button id="cancel">Отмена</button>
+  </div>
+
+  <p id="status"></p>
 
   <script>
     const tg = window.Telegram?.WebApp;
     if (tg) {
       tg.ready();
       tg.expand();
-      document.getElementById("info").textContent = "WebApp API доступен. Всё ок!";
-    } else {
-      document.getElementById("info").textContent =
-        "Открыто в обычном браузере (для Telegram-запуска нужен HTTPS-URL).";
     }
+
+    const openBtn = document.getElementById('open');
+    const picker  = document.getElementById('picker');
+    const sendBtn = document.getElementById('send');
+    const cancelBtn = document.getElementById('cancel');
+    const timeSel = document.getElementById('time');
+    const statusP = document.getElementById('status');
+
+    openBtn.addEventListener('click', () => {
+      picker.style.display = 'block';
+      statusP.textContent = '';
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      picker.style.display = 'none';
+      statusP.textContent = 'Выбор отменён.';
+    });
+
+    sendBtn.addEventListener('click', () => {
+      const time = timeSel.value;
+
+      // Если запущено из Telegram — отправляем данные боту
+      if (tg && typeof tg.sendData === 'function') {
+        tg.sendData(JSON.stringify({ type: 'booking_time', time }));
+        // (опционально) закрыть веб-страницу MiniApp после отправки
+        // tg.close();
+        statusP.textContent = 'Время отправлено в бота: ' + time;
+      } else {
+        // Фолбэк для обычного браузера
+        statusP.textContent = 'Вы выбрали: ' + time + ' (запуск вне Telegram)';
+        alert('Выбрано время: ' + time);
+      }
+
+      picker.style.display = 'none';
+    });
   </script>
 </body>
 </html>
