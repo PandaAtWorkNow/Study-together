@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>MiniApp — запись (заглушка)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <h1>MiniApp подключен</h1>
+  <p id="info">Проверка: Telegram WebApp API не инициализирован.</p>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      document.getElementById("info").textContent = "WebApp API доступен. Всё ок!";
+    } else {
+      document.getElementById("info").textContent =
+        "Открыто в обычном браузере (для Telegram-запуска нужен HTTPS-URL).";
+    }
+  </script>
+</body>
+</html>
