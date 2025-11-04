@@ -35,7 +35,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="C:\Users\user\Desktop\Semax Together with Max\Study-together\.venv"
+VIRTUAL_ENV="C:\Users\user\PycharmProjects\Study-together\.venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

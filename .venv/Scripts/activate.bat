@@ -8,7 +8,7 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-set VIRTUAL_ENV=C:\Users\user\Desktop\Semax Together with Max\Study-together\.venv
+set VIRTUAL_ENV=C:\Users\user\PycharmProjects\Study-together\.venv
 
 if not defined PROMPT set PROMPT=$P$G
 
